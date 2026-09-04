@@ -8,7 +8,7 @@ on:
 jobs:
   tablegen:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Checkout harness
         uses: actions/checkout@v4
@@ -39,7 +39,7 @@ jobs:
 
       - name: Build PIC14 TableGen, target info and CodeGen component
         run: |
-          cmake --build llvm-build --target PIC14CommonTableGen LLVMPIC14Info LLVMPIC14CodeGen -j2
+          cmake --build llvm-build --target PIC14CommonTableGen LLVMPIC14Info LLVMPIC14CodeGen -j4
 
       - name: Show generated PIC14 files
         if: always()
