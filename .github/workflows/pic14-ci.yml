@@ -1,0 +1,47 @@
+name: PIC14 LLVM Cloud CI
+
+on:
+  push:
+    branches: [pic14-cloud-test]
+  workflow_dispatch:
+
+jobs:
+  tablegen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout harness
+        uses: actions/checkout@v4
+
+      - name: Checkout LLVM 23.1.0
+        uses: actions/checkout@v4
+        with:
+          repository: llvm/llvm-project
+          ref: llvmorg-23.1.0
+          path: llvm-project
+          fetch-depth: 1
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake
+
+      - name: Apply PIC14 overlay
+        run: python3 ci/apply_pic14.py "$GITHUB_WORKSPACE/llvm-project"
+
+      - name: Configure LLVM
+        run: |
+          cmake -S llvm-project/llvm -B llvm-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_ENABLE_ASSERTIONS=ON \
+            -DLLVM_TARGETS_TO_BUILD=X86 \
+            -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=PIC14
+
+      - name: Build PIC14 TableGen and target info
+        run: |
+          cmake --build llvm-build --target PIC14CommonTableGen LLVMPIC14Info -j2
+
+      - name: Show generated PIC14 files
+        if: always()
+        run: |
+          find llvm-build -name 'PIC14Gen*.inc' -print | sort || true
