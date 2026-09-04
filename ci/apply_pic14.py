@@ -67,6 +67,11 @@ add_subdirectory(TargetInfo)
 include "PIC14RegisterInfo.td"
 include "PIC14InstrInfo.td"
 
+// LLVM 23 standard pseudos use PointerLikeRegClass operands.  Every target
+// must map those generic pointer operands to a concrete target register class.
+// PIC14 indirect data addressing is carried by FSR, represented by PTRREG.
+defm : RemapAllTargetPseudoPointerOperands<PTRREG>;
+
 def PIC14InstrInfo : InstrInfo;
 def PIC14AsmParser : AsmParser;
 def PIC14AsmWriter : AsmWriter;
@@ -87,7 +92,8 @@ def INDF   : PIC14Reg<"INDF">;
 def PCL    : PIC14Reg<"PCL">;
 def PCLATH : PIC14Reg<"PCLATH">;
 
-def WREG : RegisterClass<"PIC14", [i8], 8, (add W)>;
+def WREG   : RegisterClass<"PIC14", [i8], 8, (add W)>;
+def PTRREG : RegisterClass<"PIC14", [i8], 8, (add FSR)>;
 ''',
 "PIC14InstrInfo.td": r'''class PIC14Inst<dag outs, dag ins, string asmstr, list<dag> pattern = []>
     : Instruction {
