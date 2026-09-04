@@ -37,9 +37,9 @@ jobs:
             -DLLVM_TARGETS_TO_BUILD=X86 \
             -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=PIC14
 
-      - name: Build PIC14 TableGen and target info
+      - name: Build PIC14 TableGen, target info and CodeGen component
         run: |
-          cmake --build llvm-build --target PIC14CommonTableGen LLVMPIC14Info -j2
+          cmake --build llvm-build --target PIC14CommonTableGen LLVMPIC14Info LLVMPIC14CodeGen -j2
 
       - name: Show generated PIC14 files
         if: always()
