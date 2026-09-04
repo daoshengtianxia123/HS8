@@ -13,7 +13,7 @@ def replace_once(path, old, new):
         raise SystemExit(f"pattern not found in {p}: {old!r}")
     p.write_text(s.replace(old, new, 1))
 
-# Register the architecture in Triple.  Keep the change intentionally small.
+# Register the architecture in Triple. Keep the change intentionally small.
 triple_h = llvm / "include/llvm/TargetParser/Triple.h"
 replace_once(triple_h,
              '    avr,         // AVR: Atmel AVR microcontroller\n',
@@ -23,8 +23,6 @@ triple_cpp = llvm / "lib/TargetParser/Triple.cpp"
 replace_once(triple_cpp,
              '  case avr:\n    return "avr";\n',
              '  case avr:\n    return "avr";\n  case pic14:\n    return "pic14";\n')
-
-# parseArch is deliberately patched by a stable nearby entry used by LLVM 23.1.
 replace_once(triple_cpp,
              '          .Case("avr", Triple::avr)\n',
              '          .Case("avr", Triple::avr)\n          .Case("pic14", Triple::pic14)\n')
@@ -43,6 +41,25 @@ tablegen(LLVM PIC14GenSubtargetInfo.inc -gen-subtarget)
 tablegen(LLVM PIC14GenAsmWriter.inc -gen-asm-writer)
 
 add_public_tablegen_target(PIC14CommonTableGen)
+
+# LLVM's component mapper expects every configured target pseudo-component to
+# have a CodeGen library.  Start with a deliberately tiny one; the real target
+# machine/lowering is added in the next bring-up step.
+add_llvm_target(PIC14CodeGen
+  PIC14TargetMachine.cpp
+
+  LINK_COMPONENTS
+  CodeGen
+  Core
+  MC
+  PIC14Info
+  Support
+  Target
+  TargetParser
+
+  ADD_TO_COMPONENT
+  PIC14
+  )
 
 add_subdirectory(TargetInfo)
 ''',
@@ -90,6 +107,11 @@ def RETLW : PIC14Inst<(outs), (ins i8imm:$k), "retlw\t$k">;
 
 let isReturn = 1, isTerminator = 1 in
 def RETURN : PIC14Inst<(outs), (ins), "return">;
+''',
+"PIC14TargetMachine.cpp": r'''// Minimal CodeGen component anchor for staged PIC14 bring-up.
+// Real TargetMachine/ISel implementation is added after TableGen + component
+// registration is proven in CI.
+namespace llvm { void PIC14CodeGenComponentAnchor() {} }
 ''',
 "TargetInfo/CMakeLists.txt": r'''add_llvm_component_library(LLVMPIC14Info
   PIC14TargetInfo.cpp
