@@ -37,9 +37,24 @@ jobs:
             -DLLVM_TARGETS_TO_BUILD=X86 \
             -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=PIC14
 
-      - name: Build PIC14 TableGen, target info and CodeGen component
+      - name: Build PIC14 components and llc
         run: |
-          cmake --build llvm-build --target PIC14CommonTableGen LLVMPIC14Info LLVMPIC14CodeGen -j4
+          cmake --build llvm-build --target \
+            PIC14CommonTableGen LLVMPIC14Info LLVMPIC14Desc LLVMPIC14CodeGen llc -j4
+
+      - name: PIC14 M1 llc acceptance
+        run: |
+          cat > ret42.ll <<'EOF'
+          target triple = "pic14-unknown-none"
+
+          define i8 @answer() {
+          entry:
+            ret i8 42
+          }
+          EOF
+          llvm-build/bin/llc -march=pic14 -mcpu=pic16f687 -filetype=asm ret42.ll -o ret42.s
+          cat ret42.s
+          grep -Eq 'retlw[[:space:]]+42' ret42.s
 
       - name: Show generated PIC14 files
         if: always()
