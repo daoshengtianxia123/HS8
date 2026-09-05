@@ -29,6 +29,9 @@ jobs:
       - name: Apply PIC14 overlay
         run: python3 ci/apply_pic14.py "$GITHUB_WORKSPACE/llvm-project"
 
+      - name: Complete PIC14 Triple bootstrap support
+        run: python3 ci/fix_pic14_triple.py "$GITHUB_WORKSPACE/llvm-project"
+
       - name: Configure LLVM
         run: |
           cmake -S llvm-project/llvm -B llvm-build -G Ninja \
