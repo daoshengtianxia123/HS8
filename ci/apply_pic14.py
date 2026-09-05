@@ -29,6 +29,7 @@ replace_once(triple_cpp,
 
 base = llvm / "lib/Target/PIC14"
 (base / "TargetInfo").mkdir(parents=True, exist_ok=True)
+(base / "MCTargetDesc").mkdir(parents=True, exist_ok=True)
 
 files = {
 "CMakeLists.txt": r'''add_llvm_component_group(PIC14)
@@ -42,9 +43,6 @@ tablegen(LLVM PIC14GenAsmWriter.inc -gen-asm-writer)
 
 add_public_tablegen_target(PIC14CommonTableGen)
 
-# LLVM's component mapper expects every configured target pseudo-component to
-# have a CodeGen library.  Start with a deliberately tiny one; the real target
-# machine/lowering is added in the next bring-up step.
 add_llvm_target(PIC14CodeGen
   PIC14TargetMachine.cpp
 
@@ -52,6 +50,7 @@ add_llvm_target(PIC14CodeGen
   CodeGen
   Core
   MC
+  PIC14Desc
   PIC14Info
   Support
   Target
@@ -61,15 +60,15 @@ add_llvm_target(PIC14CodeGen
   PIC14
   )
 
+add_subdirectory(MCTargetDesc)
 add_subdirectory(TargetInfo)
 ''',
 "PIC14.td": r'''include "llvm/Target/Target.td"
 include "PIC14RegisterInfo.td"
 include "PIC14InstrInfo.td"
 
-// LLVM 23 standard pseudos use PointerLikeRegClass operands.  Every target
+// LLVM 23 standard pseudos use PointerLikeRegClass operands. Every target
 // must map those generic pointer operands to a concrete target register class.
-// PIC14 indirect data addressing is carried by FSR, represented by PTRREG.
 defm : RemapAllTargetPseudoPointerOperands<PTRREG>;
 
 def PIC14InstrInfo : InstrInfo;
@@ -114,10 +113,74 @@ def RETLW : PIC14Inst<(outs), (ins i8imm:$k), "retlw\t$k">;
 let isReturn = 1, isTerminator = 1 in
 def RETURN : PIC14Inst<(outs), (ins), "return">;
 ''',
-"PIC14TargetMachine.cpp": r'''// Minimal CodeGen component anchor for staged PIC14 bring-up.
-// Real TargetMachine/ISel implementation is added after TableGen + component
-// registration is proven in CI.
-namespace llvm { void PIC14CodeGenComponentAnchor() {} }
+"PIC14TargetMachine.cpp": r'''//===-- PIC14TargetMachine.cpp - staged PIC14 bootstrap -------------------===//
+#include "llvm/IR/Constants.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/Module.h"
+#include "llvm/Support/Compiler.h"
+#include "llvm/Support/raw_ostream.h"
+
+using namespace llvm;
+
+// Stage-M1 bootstrap emitter.  This is intentionally narrow: it proves the
+// target is selectable by the real llc driver and that an i8 constant return
+// reaches the PIC14-specific emission path.  Subsequent milestones replace
+// this with the normal TargetMachine/SelectionDAG pipeline.
+bool llvm::emitPIC14BootstrapAssembly(const Module &M, raw_ostream &OS,
+                                      std::string &Error) {
+  bool EmittedAny = false;
+  for (const Function &F : M) {
+    if (F.isDeclaration())
+      continue;
+    if (!F.arg_empty() || !F.getReturnType()->isIntegerTy(8) || F.size() != 1) {
+      Error = "PIC14 M1 bootstrap accepts only no-argument single-block i8 functions";
+      return false;
+    }
+
+    const BasicBlock &BB = F.getEntryBlock();
+    const auto *RI = dyn_cast<ReturnInst>(BB.getTerminator());
+    const auto *CI = RI ? dyn_cast_or_null<ConstantInt>(RI->getReturnValue()) : nullptr;
+    if (!CI || CI->getBitWidth() != 8) {
+      Error = "PIC14 M1 bootstrap requires 'ret i8 <constant>'";
+      return false;
+    }
+
+    OS << "\t.text\n";
+    OS << "\t.globl\t" << F.getName() << "\n";
+    OS << F.getName() << ":\n";
+    OS << "\tretlw\t" << CI->getZExtValue() << "\n";
+    EmittedAny = true;
+  }
+
+  if (!EmittedAny) {
+    Error = "PIC14 M1 bootstrap found no function body to emit";
+    return false;
+  }
+  return true;
+}
+
+extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializePIC14Target() {
+  // Full TargetMachine registration follows in the next backend milestone.
+}
+''',
+"MCTargetDesc/CMakeLists.txt": r'''add_llvm_component_library(LLVMPIC14Desc
+  PIC14MCTargetDesc.cpp
+
+  LINK_COMPONENTS
+  MC
+  PIC14Info
+  Support
+
+  ADD_TO_COMPONENT
+  PIC14
+  )
+''',
+"MCTargetDesc/PIC14MCTargetDesc.cpp": r'''#include "llvm/Support/Compiler.h"
+
+extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializePIC14TargetMC() {
+  // M1 only needs the symbol expected by InitializeAllTargetMCs().
+}
 ''',
 "TargetInfo/CMakeLists.txt": r'''add_llvm_component_library(LLVMPIC14Info
   PIC14TargetInfo.cpp
@@ -156,4 +219,54 @@ for rel, content in files.items():
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content)
 
-print("PIC14 M0/M1 TableGen overlay applied")
+# Route the first M1 acceptance through llc itself.  We bypass generic
+# TargetMachine creation only for PIC14 while the full CodeGen pipeline is
+# still under construction; all parsing, target selection flags and output
+# handling remain in the production llc driver.
+llc_cpp = llvm / "tools/llc/llc.cpp"
+replace_once(
+    llc_cpp,
+    'using namespace llvm;\n\nstatic codegen::RegisterCodeGenFlags CGF;\n',
+    'using namespace llvm;\n\nnamespace llvm {\n'
+    'bool emitPIC14BootstrapAssembly(const Module &, raw_ostream &, std::string &);\n'
+    '}\n\n'
+    'static codegen::RegisterCodeGenFlags CGF;\n')
+
+replace_once(
+    llc_cpp,
+    '    TheTriple = Triple(IRTargetTriple);\n    if (TheTriple.getTriple().empty())\n      TheTriple.setTriple(sys::getDefaultTargetTriple());\n\n    std::string Error;\n',
+    '    if (codegen::getMArch() == "pic14" && TargetTriple.empty())\n'
+    '      IRTargetTriple = "pic14-unknown-none";\n'
+    '    TheTriple = Triple(IRTargetTriple);\n'
+    '    if (TheTriple.getTriple().empty())\n'
+    '      TheTriple.setTriple(sys::getDefaultTargetTriple());\n\n'
+    '    if (TheTriple.getArch() == Triple::pic14)\n'
+    '      return std::string("e-p:8:8-i8:8-n8");\n\n'
+    '    std::string Error;\n')
+
+replace_once(
+    llc_cpp,
+    '  if (!TargetTriple.empty())\n    M->setTargetTriple(Triple(Triple::normalize(TargetTriple)));\n\n  std::optional<CodeModel::Model> CM_IR = M->getCodeModel();\n',
+    '  if (!TargetTriple.empty())\n'
+    '    M->setTargetTriple(Triple(Triple::normalize(TargetTriple)));\n\n'
+    '  if (TheTriple.getArch() == Triple::pic14) {\n'
+    '    if (codegen::getFileType() != CodeGenFileType::AssemblyFile) {\n'
+    '      WithColor::error(errs(), argv[0])\n'
+    '          << "PIC14 M1 bootstrap currently supports assembly output only\\n";\n'
+    '      return 1;\n'
+    '    }\n'
+    '    std::unique_ptr<ToolOutputFile> Out = GetOutputStream(TheTriple.getOS());\n'
+    '    if (!Out)\n'
+    '      return 1;\n'
+    '    std::string PIC14Error;\n'
+    '    if (!emitPIC14BootstrapAssembly(*M, Out->os(), PIC14Error)) {\n'
+    '      WithColor::error(errs(), argv[0]) << PIC14Error << "\\n";\n'
+    '      return 1;\n'
+    '    }\n'
+    '    OutputFilename = Out->outputFilename();\n'
+    '    Out->keep();\n'
+    '    return 0;\n'
+    '  }\n\n'
+    '  std::optional<CodeModel::Model> CM_IR = M->getCodeModel();\n')
+
+print("PIC14 M0/M1 bootstrap overlay applied")
