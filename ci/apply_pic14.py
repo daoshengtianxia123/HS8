@@ -127,8 +127,9 @@ using namespace llvm;
 // target is selectable by the real llc driver and that an i8 constant return
 // reaches the PIC14-specific emission path.  Subsequent milestones replace
 // this with the normal TargetMachine/SelectionDAG pipeline.
-bool llvm::emitPIC14BootstrapAssembly(const Module &M, raw_ostream &OS,
-                                      std::string &Error) {
+namespace llvm {
+bool emitPIC14BootstrapAssembly(const Module &M, raw_ostream &OS,
+                                std::string &Error) {
   bool EmittedAny = false;
   for (const Function &F : M) {
     if (F.isDeclaration())
@@ -159,6 +160,7 @@ bool llvm::emitPIC14BootstrapAssembly(const Module &M, raw_ostream &OS,
   }
   return true;
 }
+} // namespace llvm
 
 extern "C" LLVM_ABI LLVM_EXTERNAL_VISIBILITY void LLVMInitializePIC14Target() {
   // Full TargetMachine registration follows in the next backend milestone.
