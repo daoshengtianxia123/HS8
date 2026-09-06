@@ -41,6 +41,9 @@ jobs:
       - name: Fix PIC14 TargetFrameLowering API
         run: python3 ci/fix_pic14_frame_lowering_api.py "$GITHUB_WORKSPACE/llvm-project"
 
+      - name: Fix PIC14 SelectionDAG API
+        run: python3 ci/fix_pic14_isel_api.py "$GITHUB_WORKSPACE/llvm-project"
+
       - name: Configure LLVM
         run: |
           cmake -S llvm-project/llvm -B llvm-build -G Ninja \
