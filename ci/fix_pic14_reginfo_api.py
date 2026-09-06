@@ -7,15 +7,20 @@ base = root / "llvm" / "lib" / "Target" / "PIC14"
 
 # LLVM 23.1 splits register enums/MC descriptors from the generated target
 # register-info class.  Make those generated declarations visible before
-# GET_REGINFO_TARGET_DESC is instantiated.
+# GET_REGINFO_TARGET_DESC is instantiated.  The generated target-desc helper
+# also static_casts TargetFrameLowering to PIC14FrameLowering, so that target
+# type must be complete at the expansion point.
 path = base / "PIC14RegisterInfo.cpp"
 text = path.read_text()
 needle = '#include "PIC14.h"\n'
-insert = '#include "MCTargetDesc/PIC14MCTargetDesc.h"\n#include "llvm/CodeGen/TargetSubtargetInfo.h"\n'
+insert = '#include "MCTargetDesc/PIC14MCTargetDesc.h"\n#include "PIC14FrameLowering.h"\n#include "llvm/CodeGen/TargetSubtargetInfo.h"\n'
 if needle not in text:
     raise SystemExit("PIC14RegisterInfo.cpp include anchor not found")
 if 'MCTargetDesc/PIC14MCTargetDesc.h' not in text:
     text = text.replace(needle, needle + insert, 1)
+elif '#include "PIC14FrameLowering.h"' not in text:
+    text = text.replace('#include "MCTargetDesc/PIC14MCTargetDesc.h"\n',
+                        '#include "MCTargetDesc/PIC14MCTargetDesc.h"\n#include "PIC14FrameLowering.h"\n', 1)
 
 # Callee-saved arrays emitted by LLVM 23.1 are in namespace llvm, not PIC14.
 text = text.replace('PIC14::CSR_PIC14_NoRegs_SaveList',
@@ -36,4 +41,4 @@ if '#define DEBUG_TYPE "pic14-subtarget"' not in text:
                         anchor + '#define DEBUG_TYPE "pic14-subtarget"\n\n', 1)
 path.write_text(text)
 
-print("PIC14 LLVM 23.1 RegisterInfo generated declarations and DEBUG_TYPE fixed")
+print("PIC14 LLVM 23.1 RegisterInfo generated declarations, complete FrameLowering type, and DEBUG_TYPE fixed")
