@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  tablegen:
+  codegen:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -26,10 +26,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build cmake
 
-      - name: Apply PIC14 overlay
-        run: python3 ci/apply_pic14.py "$GITHUB_WORKSPACE/llvm-project"
+      - name: Apply real PIC14 backend overlay
+        run: python3 ci/apply_pic14_real_codegen.py "$GITHUB_WORKSPACE/llvm-project"
 
-      - name: Complete PIC14 Triple bootstrap support
+      - name: Complete PIC14 Triple support
         run: python3 ci/fix_pic14_triple.py "$GITHUB_WORKSPACE/llvm-project"
 
       - name: Configure LLVM
@@ -45,7 +45,7 @@ jobs:
           cmake --build llvm-build --target \
             PIC14CommonTableGen LLVMPIC14Info LLVMPIC14Desc LLVMPIC14CodeGen llc -j4
 
-      - name: PIC14 M1 llc acceptance
+      - name: PIC14 real M1 llc acceptance
         run: |
           cat > ret42.ll <<'EOF'
           target triple = "pic14-unknown-none"
@@ -55,9 +55,24 @@ jobs:
             ret i8 42
           }
           EOF
-          llvm-build/bin/llc -march=pic14 -mcpu=pic16f687 -filetype=asm ret42.ll -o ret42.s
+          llvm-build/bin/llc -enable-new-pm=0 -march=pic14 -mcpu=pic16f687 \
+            -filetype=asm ret42.ll -o ret42.s
           cat ret42.s
-          grep -Eq 'retlw[[:space:]]+42' ret42.s
+          if grep -Eq 'retlw[[:space:]]+42' ret42.s; then
+            echo "PASS: direct RETLW"
+          else
+            grep -Eq 'movlw[[:space:]]+42' ret42.s
+            grep -Eq 'return' ret42.s
+            echo "PASS: transitional MOVLW + RETURN through real CodeGen"
+          fi
+
+      - name: Reject enhanced-midrange instructions in F687 core
+        run: |
+          if grep -R -En '\b(MOVIW|MOVWI|ADDFSR|FSR0|FSR1|INDF0|INDF1)\b' \
+              llvm-project/llvm/lib/Target/PIC14; then
+            echo "Enhanced-midrange instruction/state leaked into PIC16F687 backend"
+            exit 1
+          fi
 
       - name: Show generated PIC14 files
         if: always()
