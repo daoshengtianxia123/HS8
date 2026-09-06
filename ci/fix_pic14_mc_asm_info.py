@@ -5,12 +5,16 @@ import sys
 root = Path(sys.argv[1]).resolve()
 path = root / "llvm" / "lib" / "Target" / "PIC14" / "MCTargetDesc" / "PIC14MCAsmInfo.cpp"
 text = path.read_text()
-needle = '#include "PIC14MCAsmInfo.h"\n'
-replacement = needle + '#include "llvm/Support/Alignment.h"\n'
-if replacement in text:
-    print("PIC14 MCAsmInfo Alignment include already present")
+
+# LLVM 23.1 MCAsmInfo::MinInstAlignment is an unsigned byte count, not Align.
+# Keep this compatibility fix isolated in CI until the real overlay is folded
+# into a normal source patch.
+old = "  MinInstAlignment = Align(1);\n"
+new = "  MinInstAlignment = 1;\n"
+if new in text:
+    print("PIC14 MCAsmInfo MinInstAlignment already uses LLVM 23.1 unsigned API")
     raise SystemExit(0)
-if needle not in text:
-    raise SystemExit("PIC14MCAsmInfo include anchor not found")
-path.write_text(text.replace(needle, replacement, 1))
-print("PIC14 MCAsmInfo Alignment include added")
+if old not in text:
+    raise SystemExit("PIC14 MCAsmInfo MinInstAlignment anchor not found")
+path.write_text(text.replace(old, new, 1))
+print("PIC14 MCAsmInfo MinInstAlignment fixed for LLVM 23.1")
