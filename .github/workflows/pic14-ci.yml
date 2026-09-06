@@ -32,6 +32,9 @@ jobs:
       - name: Complete PIC14 Triple support
         run: python3 ci/fix_pic14_triple.py "$GITHUB_WORKSPACE/llvm-project"
 
+      - name: Complete PIC14 MCAsmInfo includes
+        run: python3 ci/fix_pic14_mc_asm_info.py "$GITHUB_WORKSPACE/llvm-project"
+
       - name: Configure LLVM
         run: |
           cmake -S llvm-project/llvm -B llvm-build -G Ninja \
