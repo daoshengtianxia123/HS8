@@ -50,6 +50,12 @@ jobs:
       - name: Fix PIC14 AsmPrinter operand handling
         run: python3 ci/fix_pic14_asmprinter_operand.py "$GITHUB_WORKSPACE/llvm-project"
 
+      - name: Install PIC14 M1 lit regression
+        run: |
+          mkdir -p llvm-project/llvm/test/CodeGen/PIC14
+          cp tests/CodeGen/PIC14/ret-const.ll \
+            llvm-project/llvm/test/CodeGen/PIC14/ret-const.ll
+
       - name: Configure LLVM
         run: |
           cmake -S llvm-project/llvm -B llvm-build -G Ninja \
@@ -58,10 +64,11 @@ jobs:
             -DLLVM_TARGETS_TO_BUILD=X86 \
             -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=PIC14
 
-      - name: Build PIC14 components and llc
+      - name: Build PIC14 components, llc and FileCheck
         run: |
           cmake --build llvm-build --target \
-            PIC14CommonTableGen LLVMPIC14Info LLVMPIC14Desc LLVMPIC14CodeGen llc -j4
+            PIC14CommonTableGen LLVMPIC14Info LLVMPIC14Desc LLVMPIC14CodeGen \
+            llc FileCheck -j4
 
       - name: PIC14 real M1 llc acceptance
         run: |
@@ -76,13 +83,12 @@ jobs:
           llvm-build/bin/llc -enable-new-pm=0 -march=pic14 -mcpu=pic16f687 \
             -filetype=asm ret42.ll -o ret42.s
           cat ret42.s
-          if grep -Eq 'retlw[[:space:]]+42' ret42.s; then
-            echo "PASS: direct RETLW"
-          else
-            grep -Eq 'movlw[[:space:]]+42' ret42.s
-            grep -Eq 'return' ret42.s
-            echo "PASS: transitional MOVLW + RETURN through real CodeGen"
-          fi
+          grep -Eq 'retlw[[:space:]]+42' ret42.s
+
+      - name: PIC14 M1 lit FileCheck regression
+        run: |
+          llvm-build/bin/llvm-lit -v \
+            llvm-project/llvm/test/CodeGen/PIC14/ret-const.ll
 
       - name: Reject enhanced-midrange instructions in F687 core
         run: |
