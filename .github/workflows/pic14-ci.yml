@@ -64,11 +64,11 @@ jobs:
             -DLLVM_TARGETS_TO_BUILD=X86 \
             -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=PIC14
 
-      - name: Build PIC14 components, llc and FileCheck
+      - name: Build PIC14 components, llc and lit helpers
         run: |
           cmake --build llvm-build --target \
             PIC14CommonTableGen LLVMPIC14Info LLVMPIC14Desc LLVMPIC14CodeGen \
-            llc FileCheck count -j4
+            llc FileCheck count not -j4
 
       - name: PIC14 real M1 llc acceptance
         run: |
