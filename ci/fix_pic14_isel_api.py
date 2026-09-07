@@ -160,4 +160,50 @@ if old_inst not in text:
     raise SystemExit("PIC14 RETLW instruction pattern not found")
 td.write_text(text.replace(old_inst, new_inst, 1))
 
+# SelectionDAG::verifyNode() unconditionally asks the target's
+# SelectionDAGTargetInfo to verify target-specific DAG opcodes in assertion
+# builds. The M1 subtarget previously returned nullptr here, so the first real
+# PIC14ISD::RETLW node dereferenced a null TSI and crashed before instruction
+# selection. A default SelectionDAGTargetInfo is sufficient for M1 because
+# PIC14 has no target-specific DAG verification or memcpy hooks yet.
+subtarget = base / "PIC14Subtarget.h"
+text = subtarget.read_text()
+old_include = '#include "llvm/CodeGen/TargetSubtargetInfo.h"\n'
+new_include = (
+    '#include "llvm/CodeGen/SelectionDAGTargetInfo.h"\n'
+    '#include "llvm/CodeGen/TargetSubtargetInfo.h"\n'
+)
+if old_include not in text:
+    raise SystemExit("PIC14Subtarget SelectionDAGTargetInfo include anchor not found")
+text = text.replace(old_include, new_include, 1)
+
+old_members = '''  PIC14InstrInfo InstrInfo;
+  PIC14TargetLowering TLInfo;
+  PIC14FrameLowering FrameLowering;
+'''
+new_members = '''  PIC14InstrInfo InstrInfo;
+  PIC14TargetLowering TLInfo;
+  PIC14FrameLowering FrameLowering;
+  SelectionDAGTargetInfo TSInfo;
+'''
+if old_members not in text:
+    raise SystemExit("PIC14Subtarget member anchor not found")
+text = text.replace(old_members, new_members, 1)
+
+old_getter = '''  const TargetFrameLowering *getFrameLowering() const override {
+    return &FrameLowering;
+  }
+'''
+new_getter = '''  const TargetFrameLowering *getFrameLowering() const override {
+    return &FrameLowering;
+  }
+  const SelectionDAGTargetInfo *getSelectionDAGInfo() const override {
+    return &TSInfo;
+  }
+'''
+if old_getter not in text:
+    raise SystemExit("PIC14Subtarget SelectionDAGTargetInfo getter anchor not found")
+text = text.replace(old_getter, new_getter, 1)
+subtarget.write_text(text)
+
 print("PIC14 LLVM 23.1 SelectionDAG M1 constant RETLW lowering fixed")
