@@ -15,10 +15,9 @@ if old not in text:
     raise SystemExit("PIC14 TargetLowering LLVM 23.1 ctor fix pattern not found")
 text = text.replace(old, new, 1)
 
-# Use the generated return calling convention when constructing CopyToReg.
-# This follows LLVM 23.1's normal SelectionDAG return-lowering contract instead
-# of hard-coding a physical register directly in LowerReturn.  In particular,
-# CCValAssign supplies both the physical register and LocVT used by the DAG.
+# Keep the generated calling-convention implementation available for the next
+# ABI milestone. M1's constant-return acceptance below deliberately does not
+# create a CopyToReg: the PIC16F687 RETLW instruction itself writes W.
 include_anchor = '#include "PIC14Subtarget.h"\n'
 include_text = (
     '#include "PIC14Subtarget.h"\n'
@@ -65,46 +64,38 @@ old_return = '''SDValue PIC14TargetLowering::LowerReturn(
 '''
 
 new_return = '''SDValue PIC14TargetLowering::LowerReturn(
-    SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
+    SDValue Chain, CallingConv::ID, bool IsVarArg,
     const SmallVectorImpl<ISD::OutputArg> &Outs,
     const SmallVectorImpl<SDValue> &OutVals, const SDLoc &DL,
     SelectionDAG &DAG) const {
   if (IsVarArg || Outs.size() > 1)
     report_fatal_error("unsupported PIC14 return convention");
 
-  SmallVector<CCValAssign, 4> RVLocs;
-  CCState CCInfo(CallConv, IsVarArg, DAG.getMachineFunction(), RVLocs,
-                 *DAG.getContext());
-  CCInfo.AnalyzeReturn(Outs, RetCC_PIC14);
+  if (Outs.empty())
+    return DAG.getNode(PIC14ISD::RET_GLUE, DL, MVT::Other, Chain);
 
-  SDValue Glue;
-  SmallVector<SDValue, 4> RetOps(1, Chain);
-  for (unsigned I = 0, E = RVLocs.size(); I != E; ++I) {
-    CCValAssign &VA = RVLocs[I];
-    if (!VA.isRegLoc())
-      report_fatal_error("PIC14 M1 return must be assigned to W");
-    Chain = DAG.getCopyToReg(Chain, DL, VA.getLocReg(), OutVals[I], Glue);
-    Glue = Chain.getValue(1);
-    RetOps.push_back(DAG.getRegister(VA.getLocReg(), VA.getLocVT()));
-  }
+  if (Outs[0].VT != MVT::i8)
+    report_fatal_error("PIC14 M1 only supports i8 return values");
 
-  RetOps[0] = Chain;
-  if (Glue.getNode())
-    RetOps.push_back(Glue);
-  return DAG.getNode(PIC14ISD::RET_GLUE, DL, MVT::Other, RetOps);
+  // PIC16F687 RETLW k is a single classic-midrange instruction whose machine
+  // semantics are W := k; return.  For the M1 constant-return acceptance,
+  // represent that instruction directly as a target SelectionDAG node rather
+  // than manufacturing a CopyToReg to W followed by RETURN.  This remains in
+  // the normal TargetMachine -> SelectionDAG -> MachineInstr -> AsmPrinter
+  // pipeline and matches the device instruction semantics exactly.
+  if (!isa<ConstantSDNode>(OutVals[0]))
+    report_fatal_error("PIC14 M1 currently supports only constant i8 returns");
+  return DAG.getNode(PIC14ISD::RETLW, DL, MVT::Other, Chain, OutVals[0]);
 }
 '''
 if old_return not in text:
-    raise SystemExit("PIC14 LowerReturn LLVM 23.1 CCState fix pattern not found")
+    raise SystemExit("PIC14 LowerReturn M1 pattern not found")
 text = text.replace(old_return, new_return, 1)
 lowering.write_text(text)
 
-# LLVM 23.1 emits the physical-register and instruction opcode enums through
-# the GET_*_ENUM sections consumed by PIC14MCTargetDesc.h.  The normal
-# GET_REGINFO_HEADER / GET_INSTRINFO_HEADER sections declare the target helper
-# classes, but they do not make PIC14::W / PIC14::MOVLW / PIC14::RETURN visible
-# to these translation units.  Include the target-desc enum header where the
-# lowering and generated DAG selector consume those names.
+# LLVM 23.1 emits physical-register and instruction opcode enums through the
+# target-desc enum header. Include it where lowering and generated selection
+# consume PIC14 names.
 for rel in ("PIC14ISelLowering.cpp", "PIC14ISelDAGToDAG.cpp"):
     path = base / rel
     text = path.read_text()
@@ -119,4 +110,54 @@ for rel in ("PIC14ISelLowering.cpp", "PIC14ISelDAGToDAG.cpp"):
         )
     path.write_text(text)
 
-print("PIC14 LLVM 23.1 SelectionDAG constructor/generated enums/return CC fixed")
+# Add the target RETLW DAG opcode used by the M1 lowering.
+header = base / "PIC14ISelLowering.h"
+text = header.read_text()
+old_enum = '''enum NodeType : unsigned {
+  FIRST_NUMBER = ISD::BUILTIN_OP_END,
+  RET_GLUE
+};
+'''
+new_enum = '''enum NodeType : unsigned {
+  FIRST_NUMBER = ISD::BUILTIN_OP_END,
+  RET_GLUE,
+  RETLW
+};
+'''
+if old_enum not in text:
+    raise SystemExit("PIC14ISD enum pattern not found")
+header.write_text(text.replace(old_enum, new_enum, 1))
+
+# Model RETLW according to the classic mid-range machine: it implicitly defines
+# W and terminates the function. RAM is not introduced as a register class.
+td = base / "PIC14InstrInfo.td"
+text = td.read_text()
+old_node = '''def PIC14ret : SDNode<"PIC14ISD::RET_GLUE", SDTNone,
+                         [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
+'''
+new_node = '''def PIC14ret : SDNode<"PIC14ISD::RET_GLUE", SDTNone,
+                         [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
+
+def SDT_PIC14RetLit : SDTypeProfile<0, 1, [SDTCisVT<0, i8>]>;
+def PIC14retlw : SDNode<"PIC14ISD::RETLW", SDT_PIC14RetLit,
+                         [SDNPHasChain]>;
+'''
+if old_node not in text:
+    raise SystemExit("PIC14 return SDNode pattern not found")
+text = text.replace(old_node, new_node, 1)
+old_inst = '''// RETLW is kept as a real instruction for the later MOVLW+RETURN combine.
+let isReturn = 1, isTerminator = 1, isBarrier = 1 in
+def RETLW : PIC14Inst<(outs WREG:$dst), (ins i8imm:$k), "retlw\\t$k", []>;
+'''
+new_inst = '''// PIC16F687 RETLW k: W := k, then return. W is an implicit architectural
+// def because it is not written in the assembly syntax and no LLVM value lives
+// beyond the terminator.
+let Defs = [W], isReturn = 1, isTerminator = 1, isBarrier = 1 in
+def RETLW : PIC14Inst<(outs), (ins i8imm:$k), "retlw\\t$k",
+                      [(PIC14retlw (i8 imm:$k))]>;
+'''
+if old_inst not in text:
+    raise SystemExit("PIC14 RETLW instruction pattern not found")
+td.write_text(text.replace(old_inst, new_inst, 1))
+
+print("PIC14 LLVM 23.1 SelectionDAG M1 constant RETLW lowering fixed")
