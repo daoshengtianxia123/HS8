@@ -170,8 +170,8 @@ pressure_select = '''    if (N->getOpcode() == ISD::XOR && N->getValueType(0) ==
         SDValue BFile = CurDAG->getTargetConstant(B, DL, MVT::i8);
         SDValue CFile = CurDAG->getTargetConstant(C, DL, MVT::i8);
         SDValue TmpFile = CurDAG->getTargetConstant(0x72, DL, MVT::i8);
-        CurDAG->SelectNodeTo(N, PIC14::EXPR_PRESSURE_XOR, MVT::i8,
-                             WValue, BFile, CFile, TmpFile);
+        SDValue Ops[] = {WValue, BFile, CFile, TmpFile};
+        CurDAG->SelectNodeTo(N, PIC14::EXPR_PRESSURE_XOR, MVT::i8, Ops);
         return;
       }
     }
