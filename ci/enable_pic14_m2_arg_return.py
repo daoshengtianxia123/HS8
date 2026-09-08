@@ -134,12 +134,17 @@ def ADDWF_W : PIC14Inst<
 # Fold an i8 add of the W-resident arg and a RAMARG directly to ADDWF f,W.
 # RAMARG itself is intentionally not selected into a fake load/GPR; it denotes
 # the file-register operand consumed by the native arithmetic instruction.
-replace_once(
-    isel,
-    '''#include "PIC14.h"\n#include "PIC14TargetMachine.h"\n''',
-    '''#include "PIC14.h"\n#include "PIC14ISelLowering.h"\n#include "PIC14TargetMachine.h"\n''',
-    "PIC14 ISel lowering include",
-)
+# Earlier API-fix overlays may insert MCTargetDesc between PIC14.h and the
+# TargetMachine include, so anchor only on PIC14.h and make the insertion
+# idempotent instead of requiring two adjacent includes.
+isel_text = isel.read_text()
+isel_include = '#include "PIC14ISelLowering.h"\n'
+if isel_include not in isel_text:
+    include_anchor = '#include "PIC14.h"\n'
+    if include_anchor not in isel_text:
+        raise SystemExit(f"PIC14 ISel base include anchor not found in {isel}")
+    isel_text = isel_text.replace(include_anchor, include_anchor + isel_include, 1)
+    isel.write_text(isel_text)
 replace_once(
     isel,
     '''  void Select(SDNode *N) override {
