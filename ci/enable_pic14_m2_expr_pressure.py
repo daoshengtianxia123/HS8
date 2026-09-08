@@ -72,11 +72,12 @@ replace_once(
 using namespace llvm;
 ''',
     '''#include "PIC14Subtarget.h"
+#include "MCTargetDesc/PIC14MCTargetDesc.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 
 using namespace llvm;
 ''',
-    "PIC14 MachineInstrBuilder include",
+    "PIC14 MachineInstrBuilder/opcode include",
 )
 
 ctor = '''PIC14InstrInfo::PIC14InstrInfo(const PIC14Subtarget &STI)
