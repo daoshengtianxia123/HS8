@@ -19,10 +19,12 @@ def replace_once(path: Path, old: str, new: str, what: str) -> None:
 
 # M2 needs an explicit target value for a byte argument that is resident in
 # COMMON RAM.  This is an ABI location descriptor, not a fabricated GPR.
+# The M1 SelectionDAG fix has already added RETLW to this enum, so extend the
+# post-M1 shape rather than matching the original two-element bootstrap enum.
 replace_once(
     lowering_h,
-    '''  FIRST_NUMBER = ISD::BUILTIN_OP_END,\n  RET_GLUE\n''',
-    '''  FIRST_NUMBER = ISD::BUILTIN_OP_END,\n  RET_GLUE,\n  RAMARG\n''',
+    '''  FIRST_NUMBER = ISD::BUILTIN_OP_END,\n  RET_GLUE,\n  RETLW\n''',
+    '''  FIRST_NUMBER = ISD::BUILTIN_OP_END,\n  RET_GLUE,\n  RETLW,\n  RAMARG\n''',
     "PIC14ISD RAMARG",
 )
 
