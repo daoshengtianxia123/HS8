@@ -50,11 +50,13 @@ jobs:
       - name: Fix PIC14 AsmPrinter operand handling
         run: python3 ci/fix_pic14_asmprinter_operand.py "$GITHUB_WORKSPACE/llvm-project"
 
-      - name: Install PIC14 M1 lit regression
+      - name: Enable PIC14 M2 single-u8 argument lowering
+        run: python3 ci/enable_pic14_m2_arg_return.py "$GITHUB_WORKSPACE/llvm-project"
+
+      - name: Install PIC14 lit regressions
         run: |
           mkdir -p llvm-project/llvm/test/CodeGen/PIC14
-          cp tests/CodeGen/PIC14/ret-const.ll \
-            llvm-project/llvm/test/CodeGen/PIC14/ret-const.ll
+          cp tests/CodeGen/PIC14/*.ll llvm-project/llvm/test/CodeGen/PIC14/
 
       - name: Configure LLVM
         run: |
@@ -85,10 +87,10 @@ jobs:
           cat ret42.s
           grep -Eq 'retlw[[:space:]]+42' ret42.s
 
-      - name: PIC14 M1 lit FileCheck regression
+      - name: PIC14 lit FileCheck regressions
         run: |
           llvm-build/bin/llvm-lit -v \
-            llvm-project/llvm/test/CodeGen/PIC14/ret-const.ll
+            llvm-project/llvm/test/CodeGen/PIC14
 
       - name: Reject enhanced-midrange instructions in F687 core
         run: |
