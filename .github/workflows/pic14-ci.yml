@@ -68,7 +68,7 @@ jobs:
         run: |
           cmake --build llvm-build --target \
             PIC14CommonTableGen LLVMPIC14Info LLVMPIC14Desc LLVMPIC14CodeGen \
-            llc FileCheck count not -j4
+            llc FileCheck count not llvm-config -j4
 
       - name: PIC14 real M1 llc acceptance
         run: |
