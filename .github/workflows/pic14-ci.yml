@@ -53,6 +53,9 @@ jobs:
       - name: Enable PIC14 M2 single-u8 argument lowering
         run: python3 ci/enable_pic14_m2_arg_return.py "$GITHUB_WORKSPACE/llvm-project"
 
+      - name: Enable PIC14 M2 three-u8 argument lowering
+        run: python3 ci/enable_pic14_m2_add3.py "$GITHUB_WORKSPACE/llvm-project"
+
       - name: Install PIC14 lit regressions
         run: |
           mkdir -p llvm-project/llvm/test/CodeGen/PIC14
