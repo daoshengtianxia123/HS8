@@ -1,158 +1,72 @@
 # HS8 PIC14/PIC16F687 Work Context V2
 
-Updated: 2026-09-06
-
-This file is the durable handoff for ChatGPT Work/Codex and other coding agents working on the HS8 PIC14 LLVM backend.
+Updated: 2026-09-09
 
 ## Repository state
 
 - repo: `daoshengtianxia123/HS8`
 - working branch: `pic14-cloud-test`
-- draft PR: #1 -> `main`
+- draft PR: #1 -> `main` (keep Draft; do not merge/close)
 - cloud reference LLVM: `llvmorg-23.1.0`
-- LLVM commit: `ea7d852a70e8bdfaf601d6626a760f9771b2c4b4`
-- do not merge to main unless explicitly requested
+- architecture target: classic mid-range PIC16F687 / PIC14
 
-Latest observed CI before this handoff was run #15 (`34039441066`) at head `4f07719aca9289bde95e26c7c2c0a0478f569d21`.
+## Milestone status
 
-## Current progress
+### M1 — complete
 
-The real M1 cloud build has already passed:
-
-- PIC14 Triple/TargetParser registration path
-- CMake configuration as an experimental target
-- PIC14 TableGen generation
-- `LLVMPIC14Info`
-- substantial `LLVMPIC14Desc`
-- entry into real `LLVMPIC14CodeGen`
-
-Run #15 reached approximately `[1847/1873]` before the first PIC14 C++ compile failure.
-
-## Current first real blocker
+The direct `llc.cpp` IR-to-assembly bootstrap has been replaced by the real path:
 
 ```text
-llvm/lib/Target/PIC14/PIC14.h:4:10: fatal error:
-llvm/CodeGen/CodeGenOptLevel.h: No such file or directory
+LLVM IR -> PIC14 TargetMachine -> SelectionDAG -> MachineInstr
+        -> PIC14 AsmPrinter / MCInstPrinter -> assembly
 ```
 
-Classify this as LLVM 23.1 API/header compatibility, not an ISA/ABI design failure.
+`ret i8 42` lowers to native `retlw 42` and is covered by lit/FileCheck and CI.
 
-## Single next task
+### M2 — complete at CI #56 / head d5b730d5c306b989ea17b633d7b7ceb4d055d3c0
 
-1. Inspect LLVM 23.1 in-tree targets for the correct optimization-level type/header/API.
-2. Update the minimum PIC14 declaration/implementation surface.
-3. Rebuild `LLVMPIC14CodeGen` / `llc`.
-4. Inspect the next first real error.
-5. Repeat without expanding beyond M1.
+XC8-oracle cases covered:
 
-## Strict M1 acceptance
+- 02_arg_return_u8
+- 03_add_u8
+- 04_add3_u8
+- 05_expr_pressure_u8
+- 06_logic_u8
 
-Golden IR:
+M2 preserves the classic mid-range model:
 
-```llvm
-define i8 @f() {
-entry:
-  ret i8 42
-}
-```
+- W is the only ordinary allocatable i8 CPU register.
+- extra byte arguments/temporaries are file-register RAM memory locations, not fake GPRs.
+- arithmetic/logical file/W instructions are used natively.
+- STATUS is represented as an implicit machine dependency where the instruction changes flags.
+- enhanced-midrange FSR0/FSR1/INDF0/INDF1/MOVIW/MOVWI/ADDFSR are rejected by CI.
 
-Preferred output:
+### M3 — in progress
 
-```asm
-retlw 42
-```
+Mapped oracle cases:
 
-Temporary plumbing fallback may be:
+- 08_local_u8
+- 09_many_locals_u8
+- 25_static_local
+- 28_global_rmw
 
-```asm
-movlw 42
-return
-```
+First M3 slice introduces one-byte address-taken/volatile local storage using the initial static/non-reentrant frame model. File-register RAM remains memory. Ordinary frame slots start in bank-0 GPR RAM at 0x20; there is no fabricated software SP/GPR bank. Calls/live-across-call remain M5 and whole-program overlay remains later.
 
-M1 is not complete until the real LLVM target pipeline is used:
+## Architecture rules that must not drift
 
-```text
-LLVM IR
- -> PIC14 TargetMachine
- -> SelectionDAG
- -> MachineInstr
- -> PIC14 AsmPrinter / MCInst printer
- -> assembly
-```
+Priority: PIC16F687 datasheet > XC8 V7 P1/ASM/LST/MAP/SYM oracle > historical LLVM PIC16/kpzip architecture references.
 
-Do not keep a direct IR-to-assembly string bootstrap shortcut as the final M1 solution.
+- W is the true accumulator and the ordinary allocatable i8 register class is W-only.
+- file-register RAM is memory, never a symmetric LLVM GPR bank.
+- STATUS C/DC/Z become real MachineIR/SelectionDAG dependencies as relevant.
+- indirect addressing is single FSR + INDF + STATUS.IRP.
+- never introduce FSR0/FSR1, INDF0/INDF1, MOVIW/MOVWI, or ADDFSR.
+- i16 uses byte memory pairs + W + carry, never invented AVR-style register pairs.
+- initial C frames are static/non-reentrant; overlay is a later whole-program optimization.
+- SelectionDAG first; do not develop GlobalISel in parallel.
+- bank/page/skip/carry complexities prefer pseudos plus late expansion.
+- PIC16F687 datasheet is final encoding authority.
 
-## Architecture decisions that must not drift
+## Next progression
 
-- W is the true accumulator.
-- Conceptual allocatable 8-bit CPU register class is W-only.
-- File-register RAM is memory, never a symmetric GPR bank.
-- Do not model 0x20/0x70-style RAM locations as physical registers.
-- STATUS C/DC/Z become real dependencies at the arithmetic/compare milestone; do not fake them in M1.
-- FSR/INDF pointer semantics are later, not M1.
-- i16 must not be represented as invented AVR-like register pairs.
-- initial C frame model is static/non-reentrant; overlay is a later whole-program optimization.
-- use SelectionDAG first; do not develop GlobalISel in parallel.
-- awkward carry/skip/bank/page sequences should prefer pseudos and late expansion.
-- bank/page decisions must remain late.
-- XC8 is a semantic/codegen-strategy oracle; PIC16F687 datasheet is the final encoding authority.
-- do not invent instruction-size or CodeEmitter encoding details during asm-only M1.
-- AsmParser is optional in M1 unless compilation actually requires it.
-
-## M1 forbidden scope
-
-Do not implement or claim:
-
-- i16 ABI/arithmetic
-- direct RAM/static-frame allocator beyond what M1 mechanically needs
-- STATUS compare/branch
-- FSR/INDF data-pointer ABI
-- bank allocator
-- frame overlay
-- native `__bit`
-- interrupts
-- MUL/DIV runtime
-- ROM const/switch tables
-- Clang target extensions
-
-## CI debugging rule
-
-Always fix the first real PIC14 error, not the last Ninja symptom.
-
-Failure categories:
-
-```text
-I.   infrastructure/CMake
-II.  TableGen
-III. Triple/TargetParser API
-IV.  MC API
-V.   TargetMachine/CodeGen API
-VI.  SelectionDAG semantics
-VII. MachineInstr/AsmPrinter semantics
-VIII.M1 regression
-```
-
-Use minimal patches and rerun CI after each first-blocker fix.
-
-## Version strategy
-
-Keep cloud CI pinned to LLVM 23.1.0 until M1 is green. Only after that, forward-port the same architecture to the exact local macOS LLVM SHA.
-
-Prior local macOS setup used `/Users/ds/Desktop/llvm-project`, build directory `/Users/ds/Desktop/llvm-build-pic14`, LLVM 24.0.0git on Apple M5, with `pic16f687-agent/` as the local agent harness.
-
-This two-track approach separates backend architecture correctness from LLVM-version API churn.
-
-## Work/Codex continuation instruction
-
-Use this as the starting task:
-
-```text
-Continue the HS8 PIC14/PIC16F687 backend on branch pic14-cloud-test.
-Read docs/work/HS8_CONTEXT_V2.md first.
-Stay strictly within M0/M1.
-Inspect the latest GitHub Actions run and fix only the first real error.
-Use LLVM 23.1 in-tree targets as API references while preserving the architecture decisions above.
-Trigger/run cloud CI after each minimal fix.
-Do not merge to main.
-Do not start M2 until LLVMPIC14CodeGen + llc + ret i8 42 -> retlw 42 + lit/FileCheck are green.
-```
+Fix only the first real CI error from the M3 `08_local_u8` slice. Once green, proceed to `09_many_locals_u8`, then static local and global RMW. Do not jump to calls, pointers, i16, or frontend work before their mapped milestones.

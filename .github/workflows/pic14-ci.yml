@@ -62,6 +62,9 @@ jobs:
       - name: Enable PIC14 M2 expression-pressure lowering
         run: python3 ci/enable_pic14_m2_expr_pressure.py "$GITHUB_WORKSPACE/llvm-project"
 
+      - name: Enable PIC14 M3 one-byte static local frame lowering
+        run: python3 ci/enable_pic14_m3_local_u8.py "$GITHUB_WORKSPACE/llvm-project"
+
       - name: Install PIC14 lit regressions
         run: |
           mkdir -p llvm-project/llvm/test/CodeGen/PIC14
